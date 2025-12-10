@@ -33,6 +33,11 @@ def require_api_key(f):
         # Check header or query arg
         request_key = request.headers.get('X-API-KEY') or request.args.get('api_key')
         
+        # Also check Authorization: Bearer <token>
+        auth_header = request.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Bearer '):
+            request_key = auth_header.split(' ')[1]
+
         if request_key and request_key == api_key:
             return f(*args, **kwargs)
         else:

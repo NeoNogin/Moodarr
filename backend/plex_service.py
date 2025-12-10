@@ -113,7 +113,25 @@ class PlexService:
         if not self.server:
             self._connect()
         try:
-            return self.server.clients()
+            # 1. Get standard clients (players advertising themselves)
+            clients = self.server.clients()
+            
+            # 2. Get active sessions (players currently streaming)
+            # This helps find devices that might not show up in the standard client list
+            sessions = self.server.sessions()
+            for session in sessions:
+                # Session might be a movie/episode object, it should have a 'player' or 'players' attribute
+                if hasattr(session, 'players'):
+                    for player in session.players:
+                        # Avoid duplicates
+                        if not any(c.machineIdentifier == player.machineIdentifier for c in clients):
+                            clients.append(player)
+                elif hasattr(session, 'player'):
+                    player = session.player
+                    if not any(c.machineIdentifier == player.machineIdentifier for c in clients):
+                        clients.append(player)
+            
+            return clients
         except Exception as e:
             print(f"Error fetching clients: {e}")
             return []
