@@ -1,0 +1,4 @@
+PlexAPI
+Flask
+python-dotenv
+cachetools

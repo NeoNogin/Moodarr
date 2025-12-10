@@ -1,0 +1,1280 @@
+Project Specification: Plex Mood Concierge
+An AI-Powered Media Recommendation System for Home Assistant
+
+Executive Summary
+Project Goal: Create an intelligent media concierge that allows users to request movies from their Plex library using natural language and mood-based queries through Home Assistant's voice/chat interface.
+Core Capability: Users can say things like "I'm exhausted and want something uplifting from the 90s" and the system will search their actual Plex library, recommend appropriate matches, and play the selected content on their chosen device.
+Key Innovation: Unlike simple voice commands ("play The Matrix"), this system uses an LLM to interpret mood, context, and preferences, then queries a real-time metadata service to ensure recommendations only include content the user actually owns.
+
+System Architecture
+Component Overview
+User Request (Voice/Text)
+    ↓
+Home Assistant (Conversation/Assist)
+    ↓
+LLM Integration (Extended OpenAI Conversation or similar)
+    ↓
+    ├─→ Plex Metadata API (Python Flask Service)
+    │       ↓
+    │   Plex Media Server
+    │
+    └─→ Home Assistant Media Player Service
+            ↓
+        Plex Client (TV/Device)
+The Four Layers
+
+LLM Layer - Interprets user intent and mood, decides what to search for
+Metadata Service - Python microservice that queries Plex library in real-time
+Home Assistant - Orchestrates communication between LLM and services
+Plex - Media library and playback engine
+
+
+Detailed Component Specifications
+Component 1: Plex Metadata API Service
+Purpose
+A lightweight Python Flask web service that provides real-time access to Plex library metadata without requiring the LLM to store or know the entire library.
+Technology Stack
+
+Language: Python 3.9+
+Framework: Flask
+Libraries:
+
+plexapi - Plex server communication
+flask - Web service
+python-dotenv - Configuration management
+cachetools - In-memory caching
+
+
+
+Endpoints
+1. /search (GET)
+Purpose: Search the Plex library based on filters
+Query Parameters:
+
+genre (string, optional) - e.g., "Action", "Comedy", "Drama"
+mood (string, optional) - e.g., "uplifting", "dark", "intense", "relaxing"
+year_start (int, optional) - Minimum release year
+year_end (int, optional) - Maximum release year
+decade (string, optional) - e.g., "1990s", "2000s"
+runtime_max (int, optional) - Maximum runtime in minutes
+runtime_min (int, optional) - Minimum runtime in minutes
+rating_min (float, optional) - Minimum audience rating (0-10)
+actor (string, optional) - Filter by actor name
+director (string, optional) - Filter by director name
+limit (int, default=5) - Maximum results to return
+unwatched_only (bool, default=true) - Only return unwatched content
+sort (string, default="random") - Options: "random", "rating", "recent", "oldest"
+
+Response Format:
+json[
+  {
+    "title": "Groundhog Day",
+    "year": 1993,
+    "summary": "A weatherman finds himself living the same day over and over...",
+    "rating": 8.1,
+    "genres": ["Comedy", "Romance", "Fantasy"],
+    "runtime": 101,
+    "director": "Harold Ramis",
+    "actors": ["Bill Murray", "Andie MacDowell"],
+    "content_rating": "PG",
+    "watched": false,
+    "plex_key": "/library/metadata/12345"
+  }
+]
+2. /play (POST)
+Purpose: Initiate playback of a specific title on a Plex client
+Request Body:
+json{
+  "title": "Groundhog Day",
+  "client": "Living Room TV",
+  "plex_key": "/library/metadata/12345"
+}
+Response:
+json{
+  "status": "playing",
+  "title": "Groundhog Day",
+  "client": "Living Room TV"
+}
+3. /clients (GET)
+Purpose: List all available Plex clients
+Response:
+json[
+  {
+    "name": "Living Room TV",
+    "product": "Plex for Samsung",
+    "device": "Samsung TV"
+  },
+  {
+    "name": "Bedroom Roku",
+    "product": "Plex for Roku",
+    "device": "Roku Ultra"
+  }
+]
+4. /history (GET)
+Purpose: Get user's watch history for personalization
+Query Parameters:
+
+limit (int, default=50) - Number of recent items
+days (int, default=90) - History window in days
+
+Response:
+json[
+  {
+    "title": "The Matrix",
+    "watched_at": "2024-12-01T19:30:00",
+    "genres": ["Action", "Sci-Fi"],
+    "rating": 8.7
+  }
+]
+5. /recommend (GET)
+Purpose: AI-enhanced recommendations based on watch history
+Query Parameters:
+
+mood (string) - User's current mood
+count (int, default=5) - Number of recommendations
+
+Logic:
+
+Analyze watch history for patterns (favorite genres, directors, actors)
+Weight recommendations based on past preferences
+Exclude recently watched content
+Consider time of day and day of week patterns
+
+6. /library-stats (GET)
+Purpose: Get library statistics for context
+Response:
+json{
+  "total_movies": 1247,
+  "total_shows": 156,
+  "unwatched_movies": 423,
+  "genres": ["Action", "Comedy", "Drama", ...],
+  "decades_available": ["1950s", "1960s", ..., "2020s"],
+  "last_updated": "2024-12-09T10:30:00"
+}
+```
+
+### Configuration
+
+**Environment Variables (.env file):**
+```
+PLEX_URL=http://192.168.1.100:32400
+PLEX_TOKEN=your_plex_token_here
+LIBRARY_NAME=Movies
+CACHE_TTL=300
+API_KEY=your_secure_api_key
+PORT=5000
+Features to Implement
+Mood Mapping System
+Create a mapping between mood keywords and Plex genres/attributes:
+pythonMOOD_MAPPINGS = {
+    "uplifting": {
+        "genres": ["Comedy", "Family", "Musical"],
+        "exclude_genres": ["Horror", "Thriller"],
+        "rating_min": 6.5
+    },
+    "dark": {
+        "genres": ["Thriller", "Horror", "Crime", "Drama"],
+        "rating_min": 7.0
+    },
+    "relaxing": {
+        "genres": ["Documentary", "Drama", "Romance"],
+        "runtime_max": 110,
+        "exclude": ["action-heavy", "intense"]
+    },
+    "intense": {
+        "genres": ["Thriller", "Action", "Horror"],
+        "rating_min": 7.0
+    },
+    "mindless": {
+        "genres": ["Comedy", "Action"],
+        "rating_min": 6.0,
+        "runtime_max": 120
+    },
+    "thoughtful": {
+        "genres": ["Drama", "Sci-Fi", "Mystery"],
+        "rating_min": 7.5
+    }
+}
+Smart Caching Strategy
+python# Cache library metadata in memory
+# Refresh every 5 minutes or on-demand
+# Cache structure:
+{
+    "movies": [...],  # Full movie list with metadata
+    "genres": [...],  # Available genres
+    "actors": [...],  # All actors
+    "directors": [...],  # All directors
+    "last_refresh": "timestamp"
+}
+Advanced Filtering Logic
+
+Fuzzy genre matching - "feel-good" maps to Comedy/Family/Musical
+Runtime intelligence - "something short" = < 90 minutes, "epic" = > 150 minutes
+Smart unwatched - Prioritize unwatched but include watched if no matches
+Randomization with weights - Use rating as weight for random selection
+
+
+Component 2: Home Assistant Integration
+Configuration Files
+configuration.yaml
+yaml# REST Commands to communicate with Plex API
+rest_command:
+  search_plex_library:
+    url: "http://192.168.1.X:5000/search"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ states('input_text.plex_api_key') }}"
+    content_type: "application/json"
+    
+  play_plex_media:
+    url: "http://192.168.1.X:5000/play"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ states('input_text.plex_api_key') }}"
+      Content-Type: "application/json"
+    payload: >
+      {
+        "title": "{{ title }}",
+        "client": "{{ client }}",
+        "plex_key": "{{ plex_key }}"
+      }
+      
+  get_plex_clients:
+    url: "http://192.168.1.X:5000/clients"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ states('input_text.plex_api_key') }}"
+
+# REST Sensors for library info
+rest:
+  - resource: "http://192.168.1.X:5000/library-stats"
+    headers:
+      Authorization: "Bearer YOUR_API_KEY"
+    scan_interval: 300
+    sensor:
+      - name: "Plex Library Stats"
+        json_attributes_path: "$"
+        json_attributes:
+          - total_movies
+          - unwatched_movies
+          - genres
+        value_template: "{{ value_json.total_movies }}"
+
+# Input helpers for user preferences
+input_select:
+  plex_default_client:
+    name: Default Plex Client
+    options:
+      - Living Room TV
+      - Bedroom Roku
+      - Office Computer
+    initial: Living Room TV
+
+input_text:
+  plex_api_key:
+    name: Plex API Key
+    mode: password
+scripts.yaml
+yaml# Script 1: Search Plex Library
+plex_search_and_recommend:
+  alias: "Search Plex for Recommendations"
+  description: "Searches Plex library with filters and returns results"
+  fields:
+    genre:
+      description: "Genre to search for"
+      example: "Comedy"
+    mood:
+      description: "Mood descriptor"
+      example: "uplifting"
+    year_start:
+      description: "Earliest year"
+      example: 1990
+    year_end:
+      description: "Latest year"
+      example: 2000
+    runtime_max:
+      description: "Maximum runtime in minutes"
+      example: 120
+    limit:
+      description: "Number of results"
+      example: 5
+  sequence:
+    - service: rest_command.search_plex_library
+      data:
+        genre: "{{ genre | default('') }}"
+        mood: "{{ mood | default('') }}"
+        year_start: "{{ year_start | default('') }}"
+        year_end: "{{ year_end | default('') }}"
+        decade: "{{ decade | default('') }}"
+        runtime_max: "{{ runtime_max | default('') }}"
+        limit: "{{ limit | default(5) }}"
+      response_variable: search_results
+    - stop: "Results retrieved"
+      response_variable: search_results
+
+# Script 2: Play Selected Movie
+plex_play_movie:
+  alias: "Play Movie on Plex"
+  description: "Plays a specific movie on selected Plex client"
+  fields:
+    title:
+      description: "Exact movie title"
+      example: "The Matrix"
+    client:
+      description: "Plex client name"
+      example: "Living Room TV"
+    plex_key:
+      description: "Plex media key"
+      example: "/library/metadata/12345"
+  sequence:
+    - service: rest_command.play_plex_media
+      data:
+        title: "{{ title }}"
+        client: "{{ client | default(states('input_select.plex_default_client')) }}"
+        plex_key: "{{ plex_key }}"
+    - service: notify.mobile_app
+      data:
+        message: "Now playing: {{ title }} on {{ client }}"
+        title: "Plex Concierge"
+
+# Script 3: Get Available Clients
+plex_refresh_clients:
+  alias: "Refresh Plex Clients List"
+  sequence:
+    - service: rest_command.get_plex_clients
+      response_variable: clients_list
+    - service: input_select.set_options
+      target:
+        entity_id: input_select.plex_default_client
+      data:
+        options: "{{ clients_list.json | map(attribute='name') | list }}"
+
+# Script 4: Smart Context-Aware Search
+plex_smart_recommendation:
+  alias: "Context-Aware Plex Recommendation"
+  description: "Uses time, weather, and user context for recommendations"
+  sequence:
+    - variables:
+        is_evening: "{{ now().hour >= 18 }}"
+        is_weekend: "{{ now().weekday() >= 5 }}"
+        is_rainy: "{{ states('weather.home') in ['rainy', 'pouring'] }}"
+        base_mood: >
+          {% if is_rainy %}rainy-day
+          {% elif is_evening and is_weekend %}relaxing
+          {% else %}default
+          {% endif %}
+    - service: script.plex_search_and_recommend
+      data:
+        mood: "{{ base_mood }}"
+        limit: 3
+      response_variable: recommendations
+    - service: notify.mobile_app
+      data:
+        message: "Based on the {{ base_mood }} vibe, here are some suggestions..."
+        data:
+          actions:
+            - action: "PLAY_{{ recommendations.json[0].title | replace(' ', '_') }}"
+              title: "{{ recommendations.json[0].title }}"
+automations.yaml
+yaml# Automation 1: Friday Evening Suggestion
+- id: plex_friday_evening_suggest
+  alias: "Plex: Friday Evening Recommendation"
+  trigger:
+    - platform: time
+      at: "19:00:00"
+  condition:
+    - condition: time
+      weekday:
+        - fri
+  action:
+    - service: script.plex_smart_recommendation
+    - service: notify.mobile_app
+      data:
+        message: "It's Friday night! Want a movie recommendation?"
+        data:
+          actions:
+            - action: "YES_RECOMMEND"
+              title: "Sure!"
+            - action: "NO_THANKS"
+              title: "Not now"
+
+# Automation 2: Rainy Day Suggestion
+- id: plex_rainy_day_mood
+  alias: "Plex: Rainy Day Comfort Movies"
+  trigger:
+    - platform: state
+      entity_id: weather.home
+      to: 
+        - rainy
+        - pouring
+      for:
+        minutes: 30
+  condition:
+    - condition: time
+      after: "12:00:00"
+      before: "22:00:00"
+  action:
+    - service: script.plex_search_and_recommend
+      data:
+        mood: "cozy"
+        limit: 3
+
+# Automation 3: Late Night "Can't Sleep" Helper
+- id: plex_late_night_help
+  alias: "Plex: Late Night Relaxing Content"
+  trigger:
+    - platform: time
+      at: "23:30:00"
+  condition:
+    - condition: state
+      entity_id: light.bedroom
+      state: "on"
+  action:
+    - service: notify.mobile_app
+      data:
+        message: "Still up? Want something relaxing to wind down?"
+```
+
+---
+
+## Component 3: LLM Integration Configuration
+
+### Extended OpenAI Conversation Setup
+
+#### System Prompt Template
+```
+You are an intelligent media concierge named "Plex Concierge" for a smart home theater system.
+
+Your job is to help users find and play content from their personal Plex media library based on their mood, preferences, and context.
+
+=== AVAILABLE TOOLS ===
+
+1. **plex_search_and_recommend**
+   - Use this to search the user's Plex library
+   - Parameters:
+     * genre: specific genre (Action, Comedy, Drama, etc.)
+     * mood: emotional tone (uplifting, dark, intense, relaxing, thoughtful, mindless, cozy)
+     * year_start/year_end: filter by release year
+     * decade: shorthand for year range (e.g., "1990s")
+     * runtime_max: maximum movie length in minutes
+     * limit: number of results (default 5)
+   - Returns: JSON array of matching movies with title, year, summary, rating, genres
+
+2. **plex_play_movie**
+   - Use this ONLY after user confirms their choice
+   - Parameters:
+     * title: exact movie title from search results
+     * client: which TV/device (default: user's preferred client)
+     * plex_key: the plex key from search results
+   - Starts playback immediately
+
+3. **plex_refresh_clients**
+   - Updates the list of available playback devices
+   - Use if user asks "where can I watch?" or mentions a device you don't recognize
+
+=== YOUR PROCESS ===
+
+1. **Understand Intent**
+   - Listen for mood indicators: "I'm tired/stressed/excited/sad"
+   - Note time preferences: "something short", "an epic", "quick watch"
+   - Detect genre clues: "funny", "scary", "action-packed", "thought-provoking"
+   - Check for specific constraints: decades, actors, directors
+
+2. **Search First, Never Guess**
+   - ALWAYS use plex_search_and_recommend before suggesting titles
+   - NEVER recommend movies you're not certain are in their library
+   - If the search returns no results, adjust parameters and try again
+
+3. **Present Options Thoughtfully**
+   - Show 2-3 options (not all results unless asked)
+   - Include brief context: "Groundhog Day (1993) - A comedy classic about a weatherman stuck in a time loop. Perfect for your mood. Rating: 8.1/10"
+   - Explain WHY each fits their request
+   - If results seem off-target, acknowledge it: "These are the closest matches, but let me know if you want me to search differently"
+
+4. **Confirm Before Playing**
+   - Wait for user to pick a specific title
+   - Confirm device if ambiguous: "Should I play this in the Living Room or Bedroom?"
+   - Only call plex_play_movie after explicit confirmation
+
+5. **Handle Edge Cases**
+   - No results? Suggest loosening criteria or different genres
+   - User unhappy with options? Ask what's missing and search again
+   - Ambiguous mood? Ask clarifying questions: "Are you thinking comedy or something more heartfelt?"
+
+=== PERSONALITY & TONE ===
+
+- **Conversational but knowledgeable** - Like a friend who really knows movies
+- **Concise** - Don't over-explain unless asked
+- **Contextually aware** - Use info like time of day, day of week if relevant
+- **Proactive but not pushy** - Suggest, don't insist
+- **Honest** - If their library doesn't have great matches, say so
+
+=== CONTEXTUAL AWARENESS ===
+
+You have access to:
+- Current time and date
+- Weather conditions
+- User's watch history (via search results showing "watched: true/false")
+- Available Plex clients
+
+Use this context naturally:
+- "It's a rainy Friday evening - perfect for something cozy"
+- "Since you watched The Matrix trilogy recently, how about..."
+- "I see you haven't watched this one yet..."
+
+=== EXAMPLES ===
+
+**Example 1: Mood-Based Search**
+User: "I had a terrible day at work. Need something to cheer me up."
+
+You (Internal): User is stressed → needs uplifting content → probably comedy or feel-good drama
+You (Action): Call plex_search_and_recommend(mood="uplifting", limit=3)
+You (Response): "Sorry to hear that! I found some feel-good options:
+1. Groundhog Day (1993) - Bill Murray's comedic time-loop classic
+2. The Grand Budapest Hotel (2014) - Whimsical Wes Anderson adventure
+3. Paddington 2 (2017) - Heartwarming and genuinely funny
+
+Which one sounds good?"
+
+**Example 2: Specific Constraints**
+User: "Something sci-fi from the 90s, under 2 hours"
+
+You (Action): Call plex_search_and_recommend(genre="Sci-Fi", year_start=1990, year_end=1999, runtime_max=120, limit=5)
+You (Response): "Here are your 90s sci-fi picks under 2 hours:
+1. The Matrix (1999) - 136 min - Mind-bending action
+2. Dark City (1998) - 100 min - Neo-noir sci-fi thriller
+
+Which one?"
+
+**Example 3: No Good Matches**
+User: "I want a romantic comedy with zombies from the 1960s"
+
+You (Action): Call plex_search_and_recommend(genre="Romance,Comedy", year_start=1960, year_end=1969)
+You (Response): "Hmm, I don't have any zombie rom-coms from the 60s in your library. How about I search for:
+- Zombie comedies from any era?
+- 60s romantic comedies without zombies?
+- Modern zombie rom-coms?
+
+What sounds better?"
+
+=== IMPORTANT REMINDERS ===
+
+- NEVER invent movie titles or claim something is available without checking
+- ALWAYS search before recommending
+- Respect the user's mood and context
+- Keep responses concise (2-4 sentences typically)
+- Only play media after explicit user confirmation
+- If uncertain about the user's intent, ask a clarifying question
+
+You are helpful, knowledgeable, and genuinely care about finding the perfect movie for the moment.
+Function/Tool Schema Definitions
+For OpenAI function calling format:
+json{
+  "functions": [
+    {
+      "name": "plex_search_and_recommend",
+      "description": "Search the user's Plex library for movies matching specific criteria like genre, mood, year, or runtime",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "genre": {
+            "type": "string",
+            "description": "Movie genre (e.g., Action, Comedy, Drama, Horror, Sci-Fi)"
+          },
+          "mood": {
+            "type": "string",
+            "enum": ["uplifting", "dark", "intense", "relaxing", "thoughtful", "mindless", "cozy", "rainy-day"],
+            "description": "The emotional tone or vibe the user is looking for"
+          },
+          "year_start": {
+            "type": "integer",
+            "description": "Minimum release year (e.g., 1990)"
+          },
+          "year_end": {
+            "type": "integer",
+            "description": "Maximum release year (e.g., 2000)"
+          },
+          "decade": {
+            "type": "string",
+            "description": "Decade shorthand (e.g., '1990s', '2000s')"
+          },
+          "runtime_max": {
+            "type": "integer",
+            "description": "Maximum runtime in minutes"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 5,
+            "description": "Number of results to return"
+          }
+        }
+      }
+    },
+    {
+      "name": "plex_play_movie",
+      "description": "Play a specific movie on a Plex client after user confirms their selection",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Exact title of the movie to play (must match search results)"
+          },
+          "client": {
+            "type": "string",
+            "description": "Name of the Plex client device (e.g., 'Living Room TV')"
+          },
+          "plex_key": {
+            "type": "string",
+            "description": "The Plex media key from search results"
+          }
+        },
+        "required": ["title", "plex_key"]
+      }
+    }
+  ]
+}
+
+Component 4: Enhanced Features
+Feature 1: Watch History Analysis
+Purpose: Learn user preferences over time to improve recommendations
+Implementation:
+python# In the Python service
+@app.route('/analyze-preferences', methods=['GET'])
+def analyze_preferences():
+    """
+    Analyze watch history to determine:
+    - Favorite genres (weighted by frequency and ratings)
+    - Preferred decades
+    - Favorite actors/directors
+    - Average preferred runtime
+    - Time-of-day viewing patterns
+    """
+    history = get_watch_history(days=90)
+    
+    genre_scores = {}
+    for item in history:
+        for genre in item.genres:
+            genre_scores[genre] = genre_scores.get(genre, 0) + item.rating
+    
+    preferences = {
+        "top_genres": sorted(genre_scores.items(), key=lambda x: x[1], reverse=True)[:5],
+        "avg_runtime": sum(item.runtime for item in history) / len(history),
+        "preferred_decades": most_common([str(item.year)[:3] + "0s" for item in history]),
+        "favorite_actors": most_common([actor for item in history for actor in item.actors])[:10]
+    }
+    
+    return jsonify(preferences)
+LLM Integration:
+
+Automatically inject preference data into search queries
+"Based on your watch history, you seem to enjoy..." statements
+Weight random selection toward preferred attributes
+
+Feature 2: Multi-Room Context
+Purpose: Smart device selection based on context
+Implementation:
+yaml# In Home Assistant
+input_text:
+  last_used_room:
+    name: Last Used Room
+
+automation:
+  - alias: "Track Last Plex Room"
+    trigger:
+      - platform: state
+        entity_id: 
+          - media_player.living_room_plex
+          - media_player.bedroom_plex
+        to: "playing"
+    action:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.last_used_room
+        data:
+          value: "{{ trigger.to_state.name }}"
+LLM Logic:
+
+If user doesn't specify device, use last used room
+If multiple people detected (via presence sensors), ask which room
+Time-based defaults: Morning = Kitchen, Evening = Living Room, Night = Bedroom
+
+Feature 3: "Continue Watching" Feature
+Purpose: Resume partially watched content
+Implementation:
+python@app.route('/continue-watching', methods=['GET'])
+def get_continue_watching():
+    """Get list of partially watched movies/shows"""
+    account = plex.myPlexAccount()
+    on_deck = plex.library.onDeck()
+    
+    items = []
+    for item in on_deck:
+        items.append({
+            "title": item.title,
+            "progress": item.viewOffset / item.duration * 100,
+            "time_remaining": (item.duration - item.viewOffset) / 60000,  # minutes
+            "plex_key": item.key
+        })
+    
+    return jsonify(items)
+```
+
+**LLM Prompt Addition:**
+```
+If user says "continue watching" or "resume", call the continue_watching endpoint and present options with progress indicators.
+Feature 4: Social/Group Mode
+Purpose: Recommendations when multiple people are watching
+Implementation:
+yaml# Home Assistant helper
+input_boolean:
+  group_movie_night:
+    name: Group Movie Night Mode
+
+# LLM knows to:
+# - Avoid very niche content
+# - Prefer higher-rated, crowd-pleasing films
+# - Suggest content appropriate for mixed audiences
+```
+
+**LLM Prompt Addition:**
+```
+If group_movie_night mode is enabled:
+- Prioritize well-rated, broadly appealing content
+- Avoid very long films (< 140 minutes preferred)
+- Suggest popular/recognizable titles
+- Avoid extreme content (very violent, disturbing, etc.)
+Feature 5: "Surprise Me" Mode
+Purpose: Completely random selection with optional constraints
+Implementation:
+python@app.route('/surprise', methods=['GET'])
+def surprise_me():
+    """Return a completely random movie with optional soft constraints"""
+    constraints = {
+        "unwatched": True,
+        "rating>": request.args.get('rating_min', 6.5)
+    }
+    
+    all_movies = movies_lib.search(**constraints)
+    if not all_movies:
+        all_movies = movies_lib.all()  # Fallback to all movies
+    
+    choice = random.choice(all_movies)
+    
+    return jsonify([{
+        "title": choice.title,
+        "year": choice.year,
+        "summary": choice.summary,
+        "rating": choice.audienceRating,
+        "genres": [g.tag for g in choice.genres],
+        "plex_key": choice.key
+    }])
+User Command:
+
+"Surprise me with something good"
+
+LLM Response:
+
+"Alright, rolling the dice... How about Children of Men (2006)? Intense dystopian thriller you haven't seen yet. Rating: 8.1. Want to watch it or roll again?"
+
+Feature 6: Smart Playlist Support
+Purpose: Play curated collections or themed marathons
+Implementation:
+python@app.route('/playlists', methods=['GET'])
+def get_playlists():
+    """Get all Plex playlists"""
+    playlists = plex.playlists()
+    return jsonify([{
+        "name": p.title,
+        "item_count": len(p.items()),
+        "duration_minutes": sum(item.duration for item in p.items()) / 60000
+    } for p in playlists])
+
+@app.route('/play-playlist', methods=['POST'])
+def play_playlist():
+    """Start playing a playlist"""
+    name = request.json.get('playlist_name')
+    client_name = request.json.get('client')
+    
+    playlist = plex.playlist(name)
+    client = plex.client(client_name)
+    
+    # Play first item and queue the rest
+    items = playlist.items()
+    client.playMedia(items[0])
+    for item in items[1:]:
+        client.playQueue.addItem(item)
+    
+    return jsonify({"status": "playing", "playlist": name})
+User Commands:
+
+"Play my 80s action playlist"
+"Start the Marvel marathon"
+"Shuffle my comfort movies"
+
+
+Deployment Specifications
+Docker Deployment (Recommended)
+docker-compose.yml
+yamlversion: '3.8'
+
+services:
+  plex-concierge-api:
+    build: .
+    container_name: plex_concierge_api
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - PLEX_URL=${PLEX_URL}
+      - PLEX_TOKEN=${PLEX_TOKEN}
+      - LIBRARY_NAME=${LIBRARY_NAME}
+      - API_KEY=${API_KEY}
+      - CACHE_TTL=300
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+    networks:
+      - homeassistant
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  homeassistant:
+    external: true
+Dockerfile
+dockerfileFROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application
+COPY . .
+
+# Create nonJContinue-root user
+RUN useradd -m -u 1000 plexuser && 
+chown -R plexuser:plexuser /app
+USER plexuser
+Expose port
+EXPOSE 5000
+Health check endpoint
+HEALTHCHECK --interval=30s --timeout=3s 
+CMD python -c "import requests; requests.get('http://localhost:5000/health')"
+Run application
+CMD ["python", "plex_search_api.py"]
+
+#### `requirements.txt`
+flask==3.0.0
+plexapi==4.15.7
+python-dotenv==1.0.0
+cachetools==5.3.2
+requests==2.31.0
+gunicorn==21.2.0
+
+### Systemd Service (Alternative to Docker)
+
+#### `/etc/systemd/system/plex-concierge.service`
+```ini
+[Unit]
+Description=Plex Concierge API Service
+After=network.target
+
+[Service]
+Type=simple
+User=homeassistant
+WorkingDirectory=/opt/plex-concierge
+Environment="PATH=/opt/plex-concierge/venv/bin"
+ExecStart=/opt/plex-concierge/venv/bin/python plex_search_api.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Commands:**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable plex-concierge
+sudo systemctl start plex-concierge
+sudo systemctl status plex-concierge
+```
+
+---
+
+## Security Considerations
+
+### API Authentication
+```python
+# In Flask service
+from functools import wraps
+from flask import request, jsonify
+import os
+
+API_KEY = os.getenv('API_KEY')
+
+def require_api_key(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        
+        if not auth_header:
+            return jsonify({"error": "No authorization header"}), 401
+        
+        if not auth_header.startswith('Bearer '):
+            return jsonify({"error": "Invalid authorization format"}), 401
+        
+        token = auth_header.split(' ')[1]
+        
+        if token != API_KEY:
+            return jsonify({"error": "Invalid API key"}), 403
+        
+        return f(*args, **kwargs)
+    
+    return decorated_function
+
+# Apply to all endpoints
+@app.route('/search')
+@require_api_key
+def search_library():
+    # ... existing code
+```
+
+### Network Security
+
+1. **Run on internal network only** - No external exposure
+2. **Use Home Assistant ingress** if web access needed
+3. **HTTPS/TLS** for API communication
+4. **Firewall rules** to restrict access to HA server only
+
+### Plex Token Security
+
+- **Never commit tokens to git**
+- Use `.env` file (add to `.gitignore`)
+- Rotate tokens periodically
+- Use Plex managed user with limited permissions if possible
+
+---
+
+## Testing & Validation
+
+### Unit Tests
+
+Create `tests/test_api.py`:
+```python
+import unittest
+from plex_search_api import app
+import json
+
+class TestPlexAPI(unittest.TestCase):
+    def setUp(self):
+        self.app = app.test_client()
+        self.headers = {'Authorization': 'Bearer test_key'}
+    
+    def test_search_by_genre(self):
+        response = self.app.get('/search?genre=Comedy&limit=3', headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertIsInstance(data, list)
+        self.assertLessEqual(len(data), 3)
+    
+    def test_search_by_mood(self):
+        response = self.app.get('/search?mood=uplifting', headers=self.headers)
+        data = json.loads(response.data)
+        # Verify results match mood criteria
+        for movie in data:
+            self.assertIn('Comedy', movie['genres'] + movie.get('tags', []))
+    
+    def test_invalid_api_key(self):
+        response = self.app.get('/search?genre=Action', 
+                               headers={'Authorization': 'Bearer wrong_key'})
+        self.assertEqual(response.status_code, 403)
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+### Integration Testing Scenarios
+
+**Test 1: End-to-End Mood Search**
+User: "I'm feeling down, need something uplifting"
+Expected: LLM calls search with mood="uplifting"
+API returns comedies/feel-good movies
+LLM presents 2-3 options
+User selects one
+LLM calls play command
+Verification: Movie starts on specified device
+
+**Test 2: No Results Handling**
+User: "Show me documentaries about ancient Rome from the 1920s"
+Expected: API returns empty results
+LLM acknowledges no matches
+LLM suggests alternatives
+
+**Test 3: Multi-criteria Search**
+User: "Sci-fi from the 90s, under 2 hours, highly rated"
+Expected: API filters correctly
+Results match ALL criteria
+LLM presents accurate descriptions
+
+---
+
+## User Documentation
+
+### Quick Start Guide
+```markdown
+# Plex Concierge - User Guide
+
+## Basic Commands
+
+### Simple Playback
+- "Play The Matrix"
+- "Start Inception on the living room TV"
+- "Resume what I was watching"
+
+### Mood-Based Requests
+- "I'm stressed, show me something relaxing"
+- "I want something uplifting from the 90s"
+- "Give me a mindless action movie"
+- "Something dark and intense"
+
+### Specific Searches
+- "Show me comedies from the 2000s"
+- "Find me a short movie, under 90 minutes"
+- "Highly rated sci-fi films"
+- "Movies with Tom Hanks"
+
+### Advanced Requests
+- "What haven't I watched yet in my thriller collection?"
+- "Surprise me with something good"
+- "Play my 80s playlist"
+- "What's something good for a rainy evening?"
+
+## Mood Keywords
+
+- **Uplifting**: Feel-good movies, comedies, inspirational
+- **Relaxing**: Calm, low-intensity, good for winding down
+- **Dark**: Gritty, intense, psychological thrillers
+- **Mindless**: Fun action, easy watching, no deep thinking
+- **Thoughtful**: Complex narratives, philosophical, artistic
+- **Cozy**: Perfect for rainy days, comfort viewing
+
+## Tips
+
+1. **Be conversational** - The AI understands natural language
+2. **Specify constraints** - "under 2 hours", "from the 90s", "highly rated"
+3. **Change your mind** - "Not that one, show me something else"
+4. **Ask for context** - "Why did you recommend this?"
+5. **Set preferences** - Tell it your favorite genres/actors over time
+
+## Multi-Room Usage
+
+- Default device is your preferred room (set in settings)
+- Specify room: "Play it in the bedroom"
+- Switch rooms: "Move this to the living room"
+
+## Troubleshooting
+
+**"I can't find that title"**
+- The movie might not be in your library
+- Try searching Plex directly to verify
+
+**Wrong recommendations?**
+- Be more specific about mood/genre
+- Tell it what you don't want: "Not horror though"
+
+**Playback not starting?**
+- Check that your Plex client is powered on
+- Verify device name in Home Assistant
+```
+
+---
+
+## Maintenance & Monitoring
+
+### Logging Strategy
+```python
+# Add to Flask app
+import logging
+from logging.handlers import RotatingFileHandler
+
+# Configure logging
+handler = RotatingFileHandler('logs/plex_concierge.log', maxBytes=10000000, backupCount=3)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+app.logger.addHandler(handler)
+
+# Log all API calls
+@app.before_request
+def log_request():
+    app.logger.info(f"{request.method} {request.path} - {request.remote_addr}")
+
+# Log search queries for improvement
+@app.route('/search')
+def search_library():
+    params = request.args.to_dict()
+    app.logger.info(f"Search query: {params}")
+    # ... rest of function
+```
+
+### Home Assistant Monitoring
+```yaml
+# Add sensors to track usage
+sensor:
+  - platform: rest
+    resource: http://192.168.1.X:5000/stats
+    name: Plex Concierge Stats
+    json_attributes:
+      - total_searches
+      - total_plays
+      - avg_response_time
+      - cache_hit_rate
+    value_template: "{{ value_json.total_searches }}"
+    scan_interval: 300
+
+# Alert if service is down
+alert:
+  plex_concierge_down:
+    name: Plex Concierge API is Down
+    entity_id: binary_sensor.plex_concierge_api
+    state: 'off'
+    repeat: 30
+    notifiers:
+      - mobile_app
+```
+
+### Performance Metrics to Track
+
+1. **API Response Times**
+   - Search endpoint: < 200ms (with cache)
+   - Play endpoint: < 100ms
+
+2. **Cache Hit Rate**
+   - Target: > 80% for library metadata
+   - Refresh strategy: Every 5 minutes or on-demand
+
+3. **LLM Function Calling Success Rate**
+   - Track how often LLM correctly identifies and uses tools
+   - Monitor malformed requests
+
+4. **User Satisfaction Metrics**
+   - Track "play after recommendation" rate
+   - Monitor "search again" frequency (indicates poor initial results)
+
+---
+
+## Future Enhancements (Phase 2)
+
+### 1. TV Show Support
+- Episode-level recommendations
+- "Continue watching" for shows
+- Binge-watch mode (auto-play next episode)
+- Season-aware suggestions
+
+### 2. Music Integration
+- Plex Music library support
+- Mood-based playlist creation
+- "Music for this movie" suggestions
+
+### 3. Multi-User Profiles
+- Per-user watch history
+- Individual preferences
+- "Switch to John's profile"
+
+### 4. Advanced AI Features
+- Visual similarity search using Plex thumbnails
+- "More like this" based on embeddings
+- Automatic mood detection from calendar/sensors
+- Predictive recommendations
+
+### 5. Social Features
+- Watch party coordination
+- Shared watchlists
+- "What are you watching?" status
+
+### 6. Integration Expansions
+- Trakt.tv sync for ratings
+- Letterboxd import
+- IMDB/Rotten Tomatoes integration
+- Trailer playback before selection
+
+---
+
+## Success Criteria
+
+The project is considered successful when:
+
+✅ **Functional Requirements:**
+- User can request movies using natural language mood descriptions
+- System only recommends content actually available in user's library
+- Playback initiates correctly on specified device
+- System handles "no results" gracefully
+- Response time < 3 seconds from request to recommendations
+
+✅ **User Experience:**
+- 80%+ of recommendations lead to playback (user accepts suggestion)
+- System understands conversational follow-ups ("not that one")
+- Zero hallucinated recommendations (suggesting unavailable content)
+
+✅ **Technical Requirements:**
+- API uptime > 99.5%
+- Home Assistant integration remains stable across restarts
+- Caching reduces Plex server load
+- No security vulnerabilities in exposed endpoints
+
+✅ **Bonus Goals:**
+- System learns user preferences over time
+- Proactive recommendations based on context
+- Support for multiple users/profiles
+
+---
+
+## Estimated Timeline
+
+**Week 1: Foundation**
+- Set up Python Flask service
+- Implement basic `/search` endpoint
+- Test Plex API integration
+- Deploy as Docker container
+
+**Week 2: Home Assistant Integration**
+- Configure REST commands
+- Create initial scripts
+- Test basic playback control
+- Set up LLM integration
+
+**Week 3: Intelligence Layer**
+- Implement mood mapping
+- Add advanced search logic
+- Configure LLM system prompt
+- Test end-to-end user scenarios
+
+**Week 4: Polish & Enhancement**
+- Add watch history analysis
+- Implement caching strategy
+- Create user documentation
+- Performance optimization
+- Security hardening
+
+**Ongoing: Iteration**
+- Monitor usage patterns
+- Refine mood mappings
+- Improve LLM prompts
+- Add requested features
+
+---
+
+## Conclusion
+
+This system transforms a simple media library into an intelligent, context-aware entertainment concierge. By combining the natural language understanding of LLMs with real-time library metadata and Home Assistant's automation capabilities, users get personalized recommendations that actually exist in their collection.
+
+The modular architecture allows for incremental development, easy testing, and future expansion to TV shows, music, and multi-user scenarios.
+
+The key innovation is the metadata API layer—avoiding the pitfalls of context dumping while maintaining real-time accuracy and scalability.

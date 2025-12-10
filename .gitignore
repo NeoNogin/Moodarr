@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+
+# Project specific
+backend/.env
+backend/project plan.md
+backend/Plex Metadata API Service.md
