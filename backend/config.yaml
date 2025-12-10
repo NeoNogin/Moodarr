@@ -1,0 +1,34 @@
+# Mood Mappings Configuration
+mood_mappings:
+  uplifting:
+    genres: ["Comedy", "Family", "Musical"]
+    exclude_genres: ["Horror", "Thriller"]
+    rating_min: 6.5
+  
+  dark:
+    genres: ["Thriller", "Horror", "Crime", "Drama"]
+    rating_min: 7.0
+  
+  relaxing:
+    genres: ["Documentary", "Drama", "Romance"]
+    runtime_max: 110
+    exclude_genres: ["Action", "Thriller", "Horror"]
+  
+  intense:
+    genres: ["Thriller", "Action", "Horror"]
+    rating_min: 7.0
+  
+  mindless:
+    genres: ["Comedy", "Action"]
+    rating_min: 6.0
+    runtime_max: 120
+  
+  thoughtful:
+    genres: ["Drama", "Sci-Fi", "Mystery"]
+    rating_min: 7.5
+
+# Search Defaults
+search_defaults:
+  limit: 5
+  unwatched_only: true
+  sort_order: random

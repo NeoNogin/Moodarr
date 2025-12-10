@@ -1,11 +1,24 @@
 import os
 import random
+import yaml
 from flask import Flask, request, jsonify, abort
 from plex_service import PlexService
 from dotenv import load_dotenv
 from functools import wraps
 
 load_dotenv()
+
+def load_config():
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+        with open(config_path, 'r') as file:
+            return yaml.safe_load(file)
+    except Exception as e:
+        print(f"Error loading config.yaml: {e}")
+        return {}
+
+CONFIG = load_config()
+MOOD_MAPPINGS = CONFIG.get('mood_mappings', {})
 
 app = Flask(__name__)
 plex_service = PlexService()
@@ -26,36 +39,7 @@ def require_api_key(f):
             return jsonify({"error": "Unauthorized: Invalid or missing API Key"}), 401
     return decorated_function
 
-# Mood Mappings Configuration
-MOOD_MAPPINGS = {
-    "uplifting": {
-        "genres": ["Comedy", "Family", "Musical"],
-        "exclude_genres": ["Horror", "Thriller"],
-        "rating_min": 6.5
-    },
-    "dark": {
-        "genres": ["Thriller", "Horror", "Crime", "Drama"],
-        "rating_min": 7.0
-    },
-    "relaxing": {
-        "genres": ["Documentary", "Drama", "Romance"],
-        "runtime_max": 110,
-        "exclude_genres": ["Action", "Thriller", "Horror"]
-    },
-    "intense": {
-        "genres": ["Thriller", "Action", "Horror"],
-        "rating_min": 7.0
-    },
-    "mindless": {
-        "genres": ["Comedy", "Action"],
-        "rating_min": 6.0,
-        "runtime_max": 120
-    },
-    "thoughtful": {
-        "genres": ["Drama", "Sci-Fi", "Mystery"],
-        "rating_min": 7.5
-    }
-}
+# Mood Mappings are now loaded from config.yaml
 
 @app.route('/search', methods=['GET'])
 @require_api_key

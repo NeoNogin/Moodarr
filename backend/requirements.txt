@@ -2,3 +2,4 @@ PlexAPI
 Flask
 python-dotenv
 cachetools
+PyYAML
