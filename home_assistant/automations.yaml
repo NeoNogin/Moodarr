@@ -1,0 +1,57 @@
+# Automation 1: Friday Evening Suggestion
+- id: plex_friday_evening_suggest
+  alias: "Plex: Friday Evening Recommendation"
+  trigger:
+    - platform: time
+      at: "19:00:00"
+  condition:
+    - condition: time
+      weekday:
+        - fri
+  action:
+    - service: script.plex_smart_recommendation
+    - service: notify.mobile_app
+      data:
+        message: "It's Friday night! Want a movie recommendation?"
+        data:
+          actions:
+            - action: "YES_RECOMMEND"
+              title: "Sure!"
+            - action: "NO_THANKS"
+              title: "Not now"
+
+# Automation 2: Rainy Day Suggestion
+- id: plex_rainy_day_mood
+  alias: "Plex: Rainy Day Comfort Movies"
+  trigger:
+    - platform: state
+      entity_id: weather.home
+      to: 
+        - rainy
+        - pouring
+      for:
+        minutes: 30
+  condition:
+    - condition: time
+      after: "12:00:00"
+      before: "22:00:00"
+  action:
+    - service: script.plex_search_and_recommend
+      data:
+        mood: "cozy"
+        limit: 3
+
+# Automation 3: Late Night "Can't Sleep" Helper
+- id: plex_late_night_help
+  alias: "Plex: Late Night Relaxing Content"
+  trigger:
+    - platform: time
+      at: "23:30:00"
+  condition:
+    - condition: state
+      entity_id: light.bedroom
+      state: "on"
+  action:
+    - service: notify.mobile_app
+      data:
+        message: "Still up? Want something relaxing to wind down?"

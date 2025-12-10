@@ -1,0 +1,100 @@
+# Script 1: Search Plex Library
+plex_search_and_recommend:
+  alias: "Search Plex for Recommendations"
+  description: "Searches Plex library with filters and returns results"
+  fields:
+    genre:
+      description: "Genre to search for"
+      example: "Comedy"
+    mood:
+      description: "Mood descriptor"
+      example: "uplifting"
+    year_start:
+      description: "Earliest year"
+      example: 1990
+    year_end:
+      description: "Latest year"
+      example: 2000
+    runtime_max:
+      description: "Maximum runtime in minutes"
+      example: 120
+    limit:
+      description: "Number of results"
+      example: 5
+  sequence:
+    - service: rest_command.search_plex_library
+      data:
+        genre: "{{ genre | default('') }}"
+        mood: "{{ mood | default('') }}"
+        year_start: "{{ year_start | default('') }}"
+        year_end: "{{ year_end | default('') }}"
+        decade: "{{ decade | default('') }}"
+        runtime_max: "{{ runtime_max | default('') }}"
+        limit: "{{ limit | default(5) }}"
+      response_variable: search_results
+    - stop: "Results retrieved"
+      response_variable: search_results
+
+# Script 2: Play Selected Movie
+plex_play_movie:
+  alias: "Play Movie on Plex"
+  description: "Plays a specific movie on selected Plex client"
+  fields:
+    title:
+      description: "Exact movie title"
+      example: "The Matrix"
+    client:
+      description: "Plex client name"
+      example: "Living Room TV"
+    plex_key:
+      description: "Plex media key"
+      example: "/library/metadata/12345"
+  sequence:
+    - service: rest_command.play_plex_media
+      data:
+        title: "{{ title }}"
+        client: "{{ client | default(states('input_select.plex_default_client')) }}"
+        plex_key: "{{ plex_key }}"
+    - service: notify.mobile_app
+      data:
+        message: "Now playing: {{ title }} on {{ client }}"
+        title: "Plex Concierge"
+
+# Script 3: Get Available Clients
+plex_refresh_clients:
+  alias: "Refresh Plex Clients List"
+  sequence:
+    - service: rest_command.get_plex_clients
+      response_variable: clients_list
+    - service: input_select.set_options
+      target:
+        entity_id: input_select.plex_default_client
+      data:
+        options: "{{ clients_list.json | map(attribute='name') | list }}"
+
+# Script 4: Smart Context-Aware Search
+plex_smart_recommendation:
+  alias: "Context-Aware Plex Recommendation"
+  description: "Uses time, weather, and user context for recommendations"
+  sequence:
+    - variables:
+        is_evening: "{{ now().hour >= 18 }}"
+        is_weekend: "{{ now().weekday() >= 5 }}"
+        is_rainy: "{{ states('weather.home') in ['rainy', 'pouring'] }}"
+        base_mood: >
+          {% if is_rainy %}rainy-day
+          {% elif is_evening and is_weekend %}relaxing
+          {% else %}default
+          {% endif %}
+    - service: script.plex_search_and_recommend
+      data:
+        mood: "{{ base_mood }}"
+        limit: 3
+      response_variable: recommendations
+    - service: notify.mobile_app
+      data:
+        message: "Based on the {{ base_mood }} vibe, here are some suggestions..."
+        data:
+          actions:
+            - action: "PLAY_{{ recommendations.json[0].title | replace(' ', '_') }}"
+              title: "{{ recommendations.json[0].title }}"

@@ -1,0 +1,57 @@
+# REST Commands to communicate with Plex API
+rest_command:
+  search_plex_library:
+    url: "http://192.168.1.X:5000/search"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ states('input_text.plex_api_key') }}"
+    content_type: "application/json"
+    
+  play_plex_media:
+    url: "http://192.168.1.X:5000/play"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ states('input_text.plex_api_key') }}"
+      Content-Type: "application/json"
+    payload: >
+      {
+        "title": "{{ title }}",
+        "client": "{{ client }}",
+        "plex_key": "{{ plex_key }}"
+      }
+      
+  get_plex_clients:
+    url: "http://192.168.1.X:5000/clients"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ states('input_text.plex_api_key') }}"
+
+# REST Sensors for library info
+rest:
+  - resource: "http://192.168.1.X:5000/library-stats"
+    headers:
+      Authorization: "Bearer YOUR_API_KEY"
+    scan_interval: 300
+    sensor:
+      - name: "Plex Library Stats"
+        json_attributes_path: "$"
+        json_attributes:
+          - total_movies
+          - unwatched_movies
+          - genres
+        value_template: "{{ value_json.total_movies }}"
+
+# Input helpers for user preferences
+input_select:
+  plex_default_client:
+    name: Default Plex Client
+    options:
+      - Living Room TV
+      - Bedroom Roku
+      - Office Computer
+    initial: Living Room TV
+
+input_text:
+  plex_api_key:
+    name: Plex API Key
+    mode: password
