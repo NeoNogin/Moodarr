@@ -127,3 +127,22 @@ Get recent watch history.
 **GET** `/library-stats`
 
 Returns general statistics about the library (total movies, unwatched count, available genres, etc.).
+
+## Troubleshooting
+
+### Client Discovery & Playback Issues
+
+If you receive a `404 Not Found` error or cannot find your device in the client list:
+
+1.  **Check "Advertise as player":**
+    *   On the Plex client device (especially Android/Mobile), go to **Settings > System** (or **Sharing**).
+    *   Ensure **"Advertise as player"** is toggled **ON**.
+    *   The app must be open and active for playback commands to work.
+
+2.  **Client Name Mismatch:**
+    *   Use the exact name as it appears in the Plex Dashboard or the `/clients` endpoint response.
+    *   Android devices may have names like "IDEOS" or "Pixel 9 Pro Fold". The API supports matching by Name, Product, or Device model.
+
+3.  **Network Isolation (Docker):**
+    *   This service uses the Plex Cloud API to discover devices across subnets. Ensure your container has outbound internet access.
+    *   For local discovery to work best, "Host Networking" is recommended but not required as the service includes cloud-based fallback discovery.

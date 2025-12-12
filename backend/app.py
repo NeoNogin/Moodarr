@@ -1,7 +1,8 @@
 import os
 import random
 import yaml
-from flask import Flask, request, jsonify, abort
+import json
+from flask import Flask, request, jsonify, abort, Response
 from plex_service import PlexService
 from dotenv import load_dotenv
 from functools import wraps
@@ -41,6 +42,8 @@ def require_api_key(f):
         if request_key and request_key == api_key:
             return f(*args, **kwargs)
         else:
+            print(f"Auth Failed! Expected: '{api_key}', Received: '{request_key}'")
+            print(f"Headers: {request.headers}")
             return jsonify({"error": "Unauthorized: Invalid or missing API Key"}), 401
     return decorated_function
 
@@ -227,14 +230,19 @@ def clients():
     List all available Plex clients
     """
     clients = plex_service.get_clients()
-    response = []
+    response_list = []
     for client in clients:
-        response.append({
-            "name": client.title,
+        # Handle both PlexClient (GDM/Sessions) and MyPlexResource (Cloud) objects
+        name = getattr(client, 'title', None) or getattr(client, 'name', 'Unknown')
+        
+        response_list.append({
+            "name": name,
             "product": client.product,
             "device": client.device
         })
-    return jsonify(response)
+    
+    # Use json.dumps to ensure strict JSON formatting
+    return Response(json.dumps(response_list), mimetype='application/json')
 
 @app.route('/history', methods=['GET'])
 @require_api_key
